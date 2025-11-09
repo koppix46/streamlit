@@ -39,7 +39,7 @@ def load_data(db_file):
                             THEN distance END) / 1000.0, 1) as year_distance,
                         round(sum(distance) / 1000.0, 1) as total_distance
                     FROM t_activities 
-                    WHERE userid = 1
+                    WHERE userid = 2
                 )
                 SELECT 
                     COALESCE(today_distance, 0) as today_distance,
