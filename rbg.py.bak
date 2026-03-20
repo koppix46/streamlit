@@ -1,0 +1,178 @@
+import streamlit as st
+import sqlite3
+import pandas as pd
+from datetime import datetime
+
+# --- KONFIGURATION ---
+DB_NAME = "roadbook.sqlite"
+USER_ID = 2
+
+st.set_page_config(page_title="RoadBook Trainingstagebuch", layout="wide")
+
+# --- DATENBANK FUNKTIONEN ---
+def get_connection():
+    return sqlite3.connect(DB_NAME)
+
+def init_db():
+    conn = get_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS t_activities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device TEXT NOT NULL,
+            userid NUMERIC NOT NULL,
+            cityfrom TEXT NOT NULL,
+            cityto TEXT NOT NULL,
+            date DATETIME NOT NULL,
+            distance REAL NOT NULL,
+            time INTEGER NOT NULL,
+            details TEXT,
+            vmax INTEGER,
+            weight REAL
+        )
+    """)
+    conn.close()
+
+def load_data():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(t_activities)")
+    cols = [c[1] for c in cur.fetchall()]
+
+    if 'id' in cols:
+        query = "SELECT * FROM t_activities WHERE userid = ? ORDER BY date DESC"
+    else:
+        query = "SELECT rowid AS id, * FROM t_activities WHERE userid = ? ORDER BY date DESC"
+
+    df = pd.read_sql_query(query, conn, params=(USER_ID,))
+    conn.close()
+
+    # Wir stellen sicher, dass wir eine eindeutige ID-Spalte haben
+    if 'id' not in df.columns and 'rowid' in df.columns:
+        df.rename(columns={'rowid': 'id'}, inplace=True)
+
+    return df
+
+# --- HELPER: MINUTEN <-> HH:mm ---
+def minutes_to_hm(minutes):
+    h = minutes // 60
+    m = minutes % 60
+    return f"{h:02d}:{m:02d}"
+
+def hm_to_minutes(hm_string):
+    try:
+        h, m = map(int, hm_string.split(':'))
+        return h * 60 + m
+    except:
+        return 0
+
+# --- UI LOGIK ---
+init_db()
+
+st.title("Hans-Jürgen's Tracking Tool")
+st.subheader("RoadBook Trainingstagebuch")
+
+# State für Editor-Modal (Simuliert)
+if 'editing_id' not in st.session_state:
+    st.session_state.editing_id = None
+
+# --- FORMULAR (NEU / BEARBEITEN) ---
+with st.expander("➕ Neuer Datensatz / Bearbeiten", expanded=st.session_state.editing_id is not None):
+    df = load_data()
+    edit_data = df[df['id'] == st.session_state.editing_id].iloc[0] if st.session_state.editing_id else None
+    
+    with st.form("activity_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            date_val = datetime.strptime(edit_data['date'], '%Y-%m-%d').date() if edit_data is not None else datetime.now().date()
+            date = st.date_input("Datum *", value=date_val)
+
+            device_options = ["Cube", "2 Danger", "Cannondale"]
+            if edit_data is None:
+                device_index = 0
+            else:
+                try:
+                    device_index = device_options.index(edit_data['device'])
+                except ValueError:
+                    device_index = 0
+
+            device = st.selectbox("Sportgerät *", device_options, index=device_index)
+            cityfrom = st.text_input("Start *", value=edit_data['cityfrom'] if edit_data is not None else "Herzogenaurach")
+            cityto = st.text_input("Ziel *", value=edit_data['cityto'] if edit_data is not None else "Herzogenaurach")
+        
+        with col2:
+            distance_km = float(edit_data['distance']) / 1000.0 if edit_data is not None else 0.0
+            distance = st.number_input("Entfernung [km] *", value=distance_km, step=0.1)
+            duration_str = st.text_input("Dauer [hh:mm] *", value=minutes_to_hm(edit_data['time']) if edit_data is not None else "00:00")
+            weight = st.number_input("Gewicht [kg]", value=float(edit_data['weight']) if edit_data is not None else 84.0, step=0.1)
+            vmax = st.number_input("vmax [km/h]", value=int(edit_data['vmax']) if edit_data is not None else 0, step=1)
+
+        details = st.text_area("Details", value=edit_data['details'] if edit_data is not None else "")
+        
+        submitted = st.form_submit_button("Speichern")
+        if submitted:
+            conn = get_connection()
+            duration_min = hm_to_minutes(duration_str)
+            distance_m = distance * 1000.0
+            
+            if st.session_state.editing_id:
+                conn.execute("""UPDATE t_activities SET device=?, cityfrom=?, cityto=?, date=?, distance=?, time=?, details=?, vmax=?, weight=? 
+                             WHERE id=?""", (device, cityfrom, cityto, str(date), distance_m, duration_min, details, vmax, weight, st.session_state.editing_id))
+                st.success("Datensatz aktualisiert!")
+            else:
+                conn.execute("""INSERT INTO t_activities (device, userid, cityfrom, cityto, date, distance, time, details, vmax, weight) 
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", 
+                             (device, USER_ID, cityfrom, cityto, str(date), distance_m, duration_min, details, vmax, weight))
+                st.success("Datensatz gespeichert!")
+            
+            conn.commit()
+            conn.close()
+            st.session_state.editing_id = None
+            st.rerun()
+
+# --- DATAGRID ---
+st.divider()
+data = load_data()
+
+if not data.empty:
+    # Anzeige-Formatierung
+    display_df = data.copy()
+    display_df['Dauer [h:m]'] = display_df['time'].apply(minutes_to_hm)
+    
+    # Grid Header
+    cols = st.columns([2, 1.5, 2, 2, 1, 1, 1, 1, 1.5])
+    headers = ["Datum", "Sport", "Start", "Ziel", "Distanz", "Dauer", "Gewicht", "vmax", "Aktionen"]
+    for col, header in zip(cols, headers):
+        col.write(f"**{header}**")
+
+    for _, row in display_df.iterrows():
+        c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([2, 1.5, 2, 2, 1, 1, 1, 1, 1.5])
+        c1.write(row['date'])
+        c2.write(row['device'])
+        c3.write(row['cityfrom'])
+        c4.write(row['cityto'])
+        dist_km = float(row['distance']) / 1000.0
+        c5.write(f"{dist_km:.1f} km")
+        c6.write(row['Dauer [h:m]'])
+        c7.write(row['weight'])
+        c8.write(row['vmax'])
+        
+        # Buttons für Bearbeiten und Löschen
+        btn_edit, btn_del = c9.columns(2)
+        row_id = row['id'] if 'id' in row.index else row.get('rowid', None)
+
+        if btn_edit.button("📝", key=f"edit_{row_id}"):
+            st.session_state.editing_id = row_id
+            st.rerun()
+
+        if btn_del.button("🗑️", key=f"del_{row_id}"):
+            conn = get_connection()
+            if 'id' in display_df.columns:
+                conn.execute("DELETE FROM t_activities WHERE id = ?", (row_id,))
+            else:
+                conn.execute("DELETE FROM t_activities WHERE rowid = ?", (row_id,))
+            conn.commit()
+            conn.close()
+            st.rerun()
+else:
+    st.info("Noch keine Daten vorhanden.")
