@@ -44,7 +44,10 @@ erstelle die Streamlit App so wie auf dem Screenshot angezeigt:
 
 - beachte dass pro Datensatz ein Button zum bearbeiten des Datensatzes vorhanden sein soll.
 
-
+- versuche die App Responsive zu machen:
+    1. im "Smartphone Mode" = Smartphone Mode < 1000 pixel alle Spalten bis auf Datum, Sport, Start, Ziel Screen Resolution
+    2. im "Tablet Mode" = 1000 pixel < Tablet Mode < 1400 pixel: soll nur Details augeblendet sein. Screen Resolution 
+    3. im "Desktop Mode" = Desktop Mode > 1400 pixel alle Spalten einblenden
 
 ## Name der App: rb.py
 
