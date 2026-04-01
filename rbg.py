@@ -1,7 +1,9 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import sqlite3
 import pandas as pd
 from datetime import datetime
+from time import perf_counter
 
 # --- KONFIGURATION ---
 DB_NAME = "roadbook.sqlite"
@@ -82,6 +84,38 @@ init_db()
 st.title("Hans-Jürgen's Tracking Tool")
 st.subheader("RoadBook Trainingstagebuch")
 
+# Bildschirmbreite feststellen (responsive modus)
+if 'screen_width' not in st.session_state:
+    st.session_state.screen_width = 1400  # Standardwert für Desktop
+
+if 'screen_mode' not in st.session_state:
+    st.session_state.screen_mode = 'Desktop'
+
+# Steuerleiste (Buttons) für Gerätemodus und Messwerte
+if 'screen_mode' not in st.session_state:
+    st.session_state.screen_mode = 'Desktop'
+if 'screen_width' not in st.session_state:
+    st.session_state.screen_width = 1400
+
+cols = st.columns([1,1,1,2])
+if cols[0].button("Desktop"):
+    st.session_state.screen_mode = 'Desktop'
+    st.session_state.screen_width = 1400
+if cols[1].button("Tablet"):
+    st.session_state.screen_mode = 'Tablet'
+    st.session_state.screen_width = 1200
+if cols[2].button("Smartphone"):
+    st.session_state.screen_mode = 'Smartphone'
+    st.session_state.screen_width = 900
+if cols[3].button("Neu laden"):
+    st.experimental_rerun()
+
+st.markdown(
+    f"**Modus:** {st.session_state.screen_mode} | "
+    f"**Breite:** {st.session_state.screen_width}px"
+)
+
+
 # State für Editor-Modal (Simuliert)
 if 'editing_id' not in st.session_state:
     st.session_state.editing_id = None
@@ -149,47 +183,85 @@ max_rows = st.slider("Maximale Zeilen (Limit)", min_value=10, max_value=500, val
 if search_text:
     st.info(f"Filter aktiv: '{search_text}' -> {max_rows} Zeilen max")
 
+load_start = perf_counter()
 data = load_data(filter_text=search_text.strip(), max_rows=max_rows)
+load_time_ms = (perf_counter() - load_start) * 1000
+
+st.write(f"Datensätze: {len(data)} | Ladezeit: {load_time_ms:.1f} ms")
 
 if not data.empty:
     # Anzeige-Formatierung
     display_df = data.copy()
     display_df['Dauer [h:m]'] = display_df['time'].apply(minutes_to_hm)
-    
+
+    mode = st.session_state.get('screen_mode', 'Desktop')
+    if mode == 'Desktop':
+        visible_columns = ['date', 'device', 'cityfrom', 'cityto', 'distance', 'Dauer [h:m]', 'weight', 'vmax', 'actions']
+        headers = ['Datum', 'Sport', 'Start', 'Ziel', 'Distanz', 'Dauer', 'Gewicht', 'vmax', 'Aktionen']
+        col_widths = [2, 1.5, 2, 2, 1, 1, 1, 1, 1.5]
+    elif mode == 'Tablet':
+        visible_columns = ['date', 'device', 'cityfrom', 'cityto', 'actions']
+        headers = ['Datum', 'Sport', 'Start', 'Ziel', 'Aktionen']
+        col_widths = [2, 1.5, 2, 2, 1.5]
+    else:  # Smartphone
+        visible_columns = ['date', 'device', 'cityfrom', 'cityto']
+        headers = ['Datum', 'Sport', 'Start', 'Ziel']
+        col_widths = [2, 1.5, 2, 2]
+
     # Grid Header
-    cols = st.columns([2, 1.5, 2, 2, 1, 1, 1, 1, 1.5])
-    headers = ["Datum", "Sport", "Start", "Ziel", "Distanz", "Dauer", "Gewicht", "vmax", "Aktionen"]
+    cols = st.columns(col_widths)
     for col, header in zip(cols, headers):
         col.write(f"**{header}**")
 
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([2, 1.5, 2, 2, 1, 1, 1, 1, 1.5])
-        c1.write(row['date'])
-        c2.write(row['device'])
-        c3.write(row['cityfrom'])
-        c4.write(row['cityto'])
-        dist_km = float(row['distance']) / 1000.0
-        c5.write(f"{dist_km:.1f} km")
-        c6.write(row['Dauer [h:m]'])
-        c7.write(row['weight'])
-        c8.write(row['vmax'])
-        
-        # Buttons für Bearbeiten und Löschen
-        btn_edit, btn_del = c9.columns(2)
-        row_id = row['id'] if 'id' in row.index else row.get('rowid', None)
+        row_cols = st.columns(col_widths)
 
-        if btn_edit.button("📝", key=f"edit_{row_id}"):
-            st.session_state.editing_id = row_id
-            st.rerun()
+        col_map = {
+            'date': row_cols[0],
+            'device': row_cols[1],
+            'cityfrom': row_cols[2],
+            'cityto': row_cols[3],
+            'distance': row_cols[4] if len(row_cols) > 4 else None,
+            'Dauer [h:m]': row_cols[5] if len(row_cols) > 5 else None,
+            'weight': row_cols[6] if len(row_cols) > 6 else None,
+            'vmax': row_cols[7] if len(row_cols) > 7 else None,
+            'actions': row_cols[-1],
+        }
 
-        if btn_del.button("🗑️", key=f"del_{row_id}"):
-            conn = get_connection()
-            if 'id' in display_df.columns:
-                conn.execute("DELETE FROM t_activities WHERE id = ?", (row_id,))
-            else:
-                conn.execute("DELETE FROM t_activities WHERE rowid = ?", (row_id,))
-            conn.commit()
-            conn.close()
-            st.rerun()
+        for col_key in visible_columns:
+            if col_key == 'date':
+                col_map[col_key].write(row['date'])
+            elif col_key == 'device':
+                col_map[col_key].write(row['device'])
+            elif col_key == 'cityfrom':
+                col_map[col_key].write(row['cityfrom'])
+            elif col_key == 'cityto':
+                col_map[col_key].write(row['cityto'])
+            elif col_key == 'distance':
+                dist_km = float(row['distance']) / 1000.0
+                col_map[col_key].write(f"{dist_km:.1f} km")
+            elif col_key == 'Dauer [h:m]':
+                col_map[col_key].write(row['Dauer [h:m]'])
+            elif col_key == 'weight':
+                col_map[col_key].write(row['weight'])
+            elif col_key == 'vmax':
+                col_map[col_key].write(row['vmax'])
+            elif col_key == 'actions':
+                btn_edit, btn_del = col_map[col_key].columns(2)
+                row_id = row['id'] if 'id' in row.index else row.get('rowid', None)
+
+                if btn_edit.button("📝", key=f"edit_{row_id}"):
+                    st.session_state.editing_id = row_id
+                    st.rerun()
+
+                if btn_del.button("🗑️", key=f"del_{row_id}"):
+                    conn = get_connection()
+                    if 'id' in display_df.columns:
+                        conn.execute("DELETE FROM t_activities WHERE id = ?", (row_id,))
+                    else:
+                        conn.execute("DELETE FROM t_activities WHERE rowid = ?", (row_id,))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
 else:
     st.info("Noch keine Daten vorhanden.")
