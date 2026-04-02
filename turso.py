@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import libsql_experimental as libsql
+from libsql_client import create_client_sync
 
 # --- KONFIGURATION ---
 TURSO_URL = st.secrets["turso"]["url"]
@@ -11,21 +11,28 @@ USER_ID = 2
 st.set_page_config(page_title="RoadBook Training", layout="wide")
 
 # --- DATENBANK LOGIK ---
-def get_connection():
-    return libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+def get_client():
+    # Erstellt den stabilen Client
+    return create_client_sync(url=TURSO_URL, auth_token=TURSO_TOKEN)
 
 def load_data(search=""):
-    conn = get_connection()
+    client = get_client()
     query = "SELECT rowid AS id, * FROM t_activities WHERE userid = ?"
     params = [USER_ID]
+    
     if search:
         query += " AND (device LIKE ? OR cityfrom LIKE ? OR details LIKE ?)"
         s = f"%{search}%"
         params.extend([s, s, s])
     
-    # Turso Treiber benötigt zwingend ein Tuple für params
-    df = pd.read_sql_query(query + " ORDER BY date DESC LIMIT 100", conn, params=tuple(params))
-    conn.close()
+    query += " ORDER BY date DESC LIMIT 100"
+    
+    # Ausführung über den Client
+    result = client.execute(query, params)
+    
+    # Umwandlung in DataFrame (da der neue Client kein direktes SQL-Interface für Pandas ist)
+    df = pd.DataFrame(result.rows, columns=result.columns)
+    client.close()
     return df
 
 # --- HILFSFUNKTIONEN ---
@@ -43,7 +50,7 @@ def hm_to_minutes(s):
     except:
         return 0
 
-# --- CSS FÜR ULTRA-KOMPAKTE DARSTELLUNG (RESPONSIVE) ---
+# --- CSS (Bleibt gleich) ---
 st.markdown("""
 <style>
     .training-grid {
@@ -54,35 +61,11 @@ st.markdown("""
         border-bottom: 1px solid #eee;
         grid-template-columns: 65px 1.2fr 1fr 1.2fr 1.2fr 0.8fr 0.8fr 1.5fr 0.6fr;
     }
-
-    .grid-header {
-        font-weight: bold;
-        background-color: #f8f9fb;
-        border-bottom: 2px solid #4f8bf9;
-        position: sticky;
-        top: 0;
-        z-index: 99;
-    }
-
-    @media (max-width: 1100px) {
-        .training-grid { grid-template-columns: 65px 1.2fr 1fr 1.2fr 1.2fr !important; }
-        .hide-tablet { display: none !important; }
-    }
-
-    @media (max-width: 700px) {
-        .training-grid { grid-template-columns: 65px 1fr 1fr 1fr !important; }
-        .hide-mobile { display: none !important; }
-    }
-
+    .grid-header { font-weight: bold; background-color: #f8f9fb; border-bottom: 2px solid #4f8bf9; position: sticky; top: 0; z-index: 99; }
+    @media (max-width: 1100px) { .training-grid { grid-template-columns: 65px 1.2fr 1fr 1.2fr 1.2fr !important; } .hide-tablet { display: none !important; } }
+    @media (max-width: 700px) { .training-grid { grid-template-columns: 65px 1fr 1fr 1fr !important; } .hide-mobile { display: none !important; } }
     .cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-
-    .icon-link {
-        text-decoration: none !important;
-        font-size: 18px;
-        margin-right: 8px;
-        filter: grayscale(100%);
-        transition: filter 0.2s;
-    }
+    .icon-link { text-decoration: none !important; font-size: 18px; margin-right: 8px; filter: grayscale(100%); transition: filter 0.2s; }
     .icon-link:hover { filter: grayscale(0%); background-color: #f0f2f6; border-radius: 4px; }
 </style>
 """, unsafe_allow_html=True)
@@ -91,10 +74,11 @@ st.markdown("""
 @st.dialog("Eintrag bearbeiten")
 def activity_dialog(row_id=None):
     is_new = row_id is None
-    conn = get_connection()
+    client = get_client()
     
     if not is_new:
-        row = pd.read_sql_query("SELECT rowid AS id, * FROM t_activities WHERE rowid = ?", conn, params=(row_id,)).iloc[0]
+        res = client.execute("SELECT rowid AS id, * FROM t_activities WHERE rowid = ?", [row_id])
+        row = pd.DataFrame(res.rows, columns=res.columns).iloc[0]
     else:
         row = {
             'device': 'Cube', 'date': str(datetime.now().date()), 
@@ -127,34 +111,34 @@ def activity_dialog(row_id=None):
         if cols[0].form_submit_button("💾 Speichern", type="primary", use_container_width=True):
             m_total = hm_to_minutes(new_time_str)
             if is_new:
-                conn.execute("""
+                client.execute("""
                     INSERT INTO t_activities (device, date, cityfrom, cityto, distance, time, details, vmax, weight, userid)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (new_device, str(new_date), new_from, new_to, new_dist*1000, m_total, new_details, new_vmax, new_weight, USER_ID))
+                """, [new_device, str(new_date), new_from, new_to, new_dist*1000, m_total, new_details, new_vmax, new_weight, USER_ID])
             else:
-                conn.execute("""
+                client.execute("""
                     UPDATE t_activities SET device=?, date=?, cityfrom=?, cityto=?, distance=?, time=?, details=?, vmax=?, weight=? 
                     WHERE rowid=?
-                """, (new_device, str(new_date), new_from, new_to, new_dist*1000, m_total, new_details, new_vmax, new_weight, row_id))
-            conn.commit()
-            conn.close()
+                """, [new_device, str(new_date), new_from, new_to, new_dist*1000, m_total, new_details, new_vmax, new_weight, row_id])
+            client.close()
             st.rerun()
             
         if cols[1].form_submit_button("❌ Abbrechen", use_container_width=True):
-            conn.close()
+            client.close()
             st.rerun()
 
 # --- HAUPTPROGRAMM ---
-params = st.query_params
-if "edit_id" in params:
-    activity_dialog(params["edit_id"])
-if "del_id" in params:
-    conn = get_connection()
-    conn.execute("DELETE FROM t_activities WHERE rowid = ?", (params["del_id"],))
-    conn.commit()
-    conn.close()
+# Delete Logik
+if "del_id" in st.query_params:
+    client = get_client()
+    client.execute("DELETE FROM t_activities WHERE rowid = ?", [st.query_params["del_id"]])
+    client.close()
     st.query_params.clear()
     st.rerun()
+
+# Edit Logik (Dialog Trigger)
+if "edit_id" in st.query_params:
+    activity_dialog(st.query_params["edit_id"])
 
 st.title("RoadBook Training ☁️")
 
@@ -166,7 +150,6 @@ if t2.button("➕ Neu", type="primary", use_container_width=True):
 data = load_data(search_term)
 
 if not data.empty:
-    # Header mit Responsive-Klassen
     st.markdown("""
         <div class="training-grid grid-header">
             <div class="cell">Aktion</div>
@@ -181,7 +164,6 @@ if not data.empty:
         </div>
     """, unsafe_allow_html=True)
 
-    # Datenzeilen mit Responsive-Klassen
     for _, row in data.iterrows():
         st.markdown(f"""
             <div class="training-grid">
