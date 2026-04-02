@@ -1,3 +1,5 @@
-streamlit
-pandas
 libsql-client
+pandas
+streamlit
+bcrypt
+extra-streamlit-components

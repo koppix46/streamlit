@@ -1,0 +1,22 @@
+Die folgende Streamlit App ermölicht es einem Benutzer Datensätze in einer Datenbanktabelle einzugeben, zu ändern und zu löschen.
+
+Die Tabelle t_activities hat folgende Struktur:
+CREATE TABLE 't_activities' ('device' NUMERIC NOT NULL,'userid' NUMERIC NOT NULL,'cityfrom' NUMERIC NOT NULL,'cityto' NUMERIC NOT NULL, 'date' DATETIME NOT NULL, 'distance' REAL NOT NULL,'time' INTEGER NOT NULL, 'details' TEXT, 'vmax' INTEGER, 'weight' REAL);
+
+Schlage mir für die Streamlit App eine flexible Benutzer Anmeldung vor, sodass jeder Beuntzer über eine userid identifiziert werden kann und nur seine Datensätze in der Tabelle t_activities sieht und ändern kann.
+
+Die Benutzer werden über folgende Tabelle in der Datenbank zugelassen:
+CREATE TABLE 't_users' ('userid' INTEGER UNIQUE PRIMARY KEY AUTOINCREMENT NOT NULL, 'nickname' NUMERIC UNIQUE NOT NULL, 'token' NUMERIC UNIQUE NOT NULL, 'firstname' NUMERIC, 'lastname' NUMERIC, 'password' NUMERIC NOT NULL, 'city' NUMERIC NOT NULL, 'device' NUMERIC NOT NULL, 'weight' INTEGER, 'email' NUMERIC UNIQUE, 'active' BOOLEAN);
+
+
+Der Benutzer soll zu einem Anmeldedialog geführt werden, bei dem er sich authorisieren kann.
+
+Der Dialog kann wie folgt aussehen:
+
+Nachdem sich der Benutzer erfolgreich angemeldet hat, bleibt seine Anmeldung solange gültig, bis er sich über einen Schalter im Hamburger Menü der App abmeldet, das kann er auch erst nach mehreren Tagen machen. Wenn er sich nicht abmeldet, dann soll er auch nach mehreren Tagen wieder beim Aufruf der App mit seiner Userid angemeldet werden können.
+
+Schlage vor, welche Authorisierungsverfahren Du bevorzugst und wie Du die Anmelde Informationen speichern würdest. Bedenke diese sensiblen Informationen geschützt zu speichern.
+
+Bevor Du Änderungen umsetzt, möchte ich erstmal von Dir ein Konzept vorgeschlagen bekommen. Falls es notwendig ist, kannst Du auch 2 Konzepte erstellen.
+
+Hier ist der App Code.
