@@ -191,9 +191,15 @@ if "userid" not in st.session_state:
         p_in = st.text_input("Passwort", type="password")
         if st.button("Anmelden", use_container_width=True, type="primary"):
             if login_user(u_in, p_in): st.rerun()
+        
         st.divider()
+        
+        # Hier sind die beiden Buttons wieder nebeneinander
         c_reg1, c_reg2 = st.columns(2)
-        if c_reg1.button("Neuer User?", use_container_width=True): registration_dialog()
+        if c_reg1.button("Neuer User?", use_container_width=True): 
+            registration_dialog()
+        if c_reg2.button("Kennwort vergessen?", use_container_width=True):
+            st.info("Bitte wende dich an den Administrator (Koppix), um dein Passwort zurücksetzen zu lassen.")
     st.stop()
 
 USER_ID = st.session_state["userid"]
@@ -203,12 +209,28 @@ def load_data(search="", limit=400):
     client = get_client()
     query = "SELECT rowid AS id, * FROM t_activities WHERE userid = ?"
     params = [USER_ID]
+    
     if search:
-        s = f"%{search}%"
-        query += " AND (LOWER(device) LIKE LOWER(?) OR LOWER(cityfrom) LIKE LOWER(?) OR LOWER(details) LIKE LOWER(?))"
-        params.extend([s, s, s])
+        # Zerlegt die Eingabe in einzelne Begriffe (z.B. "Cube 2026.04")
+        terms = [t.strip() for t in search.split() if t.strip()]
+        for term in terms:
+            # Spezial-Logik: Wandelt 2026.04 in 2026-04 um für die SQL-Suche
+            term_date = term.replace('.', '-')
+            
+            # Sucht in Gerät, Startort, Details UND im Datum
+            query += """ AND (LOWER(device) LIKE LOWER(?) 
+                           OR LOWER(cityfrom) LIKE LOWER(?) 
+                           OR LOWER(details) LIKE LOWER(?) 
+                           OR date LIKE ?)"""
+            
+            s = f"%{term}%"
+            sd = f"%{term_date}%"
+            params.extend([s, s, s, sd])
+    
     query += f" ORDER BY date DESC LIMIT {limit}"
-    res = client.execute(query, params); df = pd.DataFrame(res.rows, columns=res.columns); client.close()
+    res = client.execute(query, params)
+    df = pd.DataFrame(res.rows, columns=res.columns)
+    client.close()
     return df
 
 def get_default_values():
@@ -307,7 +329,7 @@ def activity_dialog(row_id=None):
             client.close()
             st.query_params.clear()
             st.rerun()
-            
+
 # --- TRIGGER ---
 st.title("RoadBook Training 🚲")
 
